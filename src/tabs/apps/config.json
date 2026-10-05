@@ -1,0 +1,9 @@
+{
+    "name": "Apps",
+    "nameRu": "Приложения",
+    "group": "software",
+    "icon": "fas fa-th",
+    "description": "USB application catalog, Office setup, Windows image list, and lab media tools",
+    "version": "1.0.0",
+    "author": "WinTool"
+}

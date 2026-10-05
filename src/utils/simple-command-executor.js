@@ -11,6 +11,47 @@ const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
 
+function isValidUtf8(buffer) {
+    try {
+        new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function looksLikeUtf16Le(buffer) {
+    if (!buffer || buffer.length < 2) return false;
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) return true;
+    if (buffer.length % 2 !== 0) return false;
+    const sample = Math.min(buffer.length, 64);
+    let oddNuls = 0;
+    let pairs = 0;
+    for (let i = 1; i < sample; i += 2) {
+        pairs += 1;
+        if (buffer[i] === 0) oddNuls += 1;
+    }
+    return pairs > 0 && oddNuls / pairs >= 0.6;
+}
+
+function decodeCmdOutput(buffer, command) {
+    if (looksLikeUtf16Le(buffer)) {
+        let text = buffer.toString('utf16le');
+        if (text.charCodeAt(0) === 0xfeff) {
+            text = text.slice(1);
+        }
+        return text;
+    }
+    const wantsOem =
+        /\bwmic\b/i.test(command) ||
+        /^\s*sc(\.exe)?\s/i.test(command) ||
+        /\bcscript(\.exe)?\b/i.test(command);
+    if (wantsOem && !isValidUtf8(buffer)) {
+        return new TextDecoder('ibm866').decode(buffer);
+    }
+    return buffer.toString('utf8');
+}
+
 class SimpleCommandExecutor {
     /**
      * Creates a new SimpleCommandExecutor instance.
@@ -144,20 +185,22 @@ class SimpleCommandExecutor {
     async executeCmdCommand(command, timeout = 30000) {
         try {
             const { stdout, stderr } = await execAsync(command, {
-                encoding: 'utf8',
+                encoding: 'buffer',
                 maxBuffer: 1024 * 1024 * 10, // 10MB buffer
                 timeout: timeout,
                 windowsHide: true,
             });
 
-            if (stderr && stderr.trim()) {
+            const stderrText =
+                stderr && stderr.length ? decodeCmdOutput(stderr, command).trim() : '';
+            if (stderrText) {
                 // Only warn about stderr if it's not an expected failure
-                if (!this.isExpectedFailure(command, stderr)) {
-                    console.warn(`[SimpleCommandExecutor] CMD stderr: ${stderr}`);
+                if (!this.isExpectedFailure(command, stderrText)) {
+                    console.warn(`[SimpleCommandExecutor] CMD stderr: ${stderrText}`);
                 }
             }
 
-            const result = stdout.trim();
+            const result = decodeCmdOutput(stdout || Buffer.alloc(0), command).trim();
 
             return result;
         } catch (error) {

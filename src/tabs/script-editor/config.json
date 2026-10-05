@@ -1,5 +1,7 @@
 {
     "name": "Script Editor",
+    "nameRu": "Скрипты",
+    "group": "settings",
     "icon": "fas fa-code",
     "description": "Edit and run scripts",
     "version": "1.0.0",

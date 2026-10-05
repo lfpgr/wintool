@@ -195,6 +195,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Generic invoke method for any IPC handler
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+
+    // USB media catalog (Apps tab)
+    usbListMediaDrives: () => ipcRenderer.invoke('usb-list-media-drives'),
+    usbReadJson: (drive, relativePath) =>
+        ipcRenderer.invoke('usb-read-json', { drive, relativePath }),
+    usbWriteJson: (drive, relativePath, data) =>
+        ipcRenderer.invoke('usb-write-json', { drive, relativePath, data }),
+    usbCopyIcon: (drive, sourcePath) =>
+        ipcRenderer.invoke('usb-copy-icon', { drive, sourcePath }),
+    usbListWindowsImages: drive => ipcRenderer.invoke('usb-list-windows-images', { drive }),
+    usbStartOfficeSetup: drive => ipcRenderer.invoke('usb-start-office-setup', { drive }),
+    usbRunMas: (drive, action) => ipcRenderer.invoke('usb-run-mas', { drive, action }),
+    getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
+    usbOpenItem: payload => ipcRenderer.invoke('usb-open-item', payload),
 });
 
 // Expose a dedicated API for plugins

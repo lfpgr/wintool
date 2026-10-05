@@ -1,5 +1,7 @@
 {
     "name": "System Info",
+    "nameRu": "Система",
+    "group": "overview",
     "icon": "fas fa-desktop",
     "description": "Display detailed system information",
     "version": "1.0.0",

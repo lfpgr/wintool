@@ -113,6 +113,27 @@ function restartApp() {
 }
 
 /**
+ * Builds a PowerShell Start-Process command that relaunches this app elevated.
+ * In development, process.execPath is electron.exe and must keep argv (app path, --dev).
+ * In packaged builds, argv flags are still forwarded when present.
+ *
+ * @function buildElevatedRelaunchScript
+ * @returns {string} PowerShell script for elevated relaunch
+ */
+function buildElevatedRelaunchScript() {
+    const escapePsSingleQuoted = (value) => String(value).replace(/'/g, "''");
+    const exe = escapePsSingleQuoted(process.execPath);
+    const workingDirectory = escapePsSingleQuoted(process.cwd());
+    const args = process.argv.slice(1).map((arg) => `'${escapePsSingleQuoted(arg)}'`);
+
+    if (args.length === 0) {
+        return `Start-Process -FilePath '${exe}' -WorkingDirectory '${workingDirectory}' -Verb RunAs`;
+    }
+
+    return `Start-Process -FilePath '${exe}' -ArgumentList @(${args.join(',')}) -WorkingDirectory '${workingDirectory}' -Verb RunAs`;
+}
+
+/**
  * Creates the admin prompt window to request elevation.
  * Shows a dedicated window explaining why admin privileges are needed.
  *
@@ -379,10 +400,7 @@ async function initializeApplication() {
                 } else if (elevationPreference === 'yes') {
                     // Try to elevate automatically
                     try {
-                        const { spawn } = require('child_process');
-                        const appPath = process.execPath;
-                        const psScript = `Start-Process -FilePath "${appPath}" -Verb RunAs`;
-                        await processPool.executePowerShellCommand(psScript);
+                        await processPool.executePowerShellCommand(buildElevatedRelaunchScript());
 
                         // If elevation was requested, quit this instance
                         setTimeout(() => {
@@ -739,12 +757,8 @@ ipcMain.handle('request-elevation', async (_) => {
         }
 
         // Request elevation by restarting the app with admin privileges
-        const appPath = process.execPath;
-
-        // Use PowerShell to restart with elevation
-        const psScript = `Start-Process -FilePath "${appPath}" -Verb RunAs`;
-
-        await processPool.executePowerShellCommand(psScript);
+        // Must forward argv so `npm run dev` relaunches electron with the app path
+        await processPool.executePowerShellCommand(buildElevatedRelaunchScript());
 
         // If we reach here, elevation was requested successfully
         // The new elevated process will start, so we can quit this one
@@ -2980,6 +2994,7 @@ ipcMain.handle('get-processes', async () => {
     try {
         // Get running processes using PowerShell with CPU percentage calculation
         const psScript = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 # Get all processes first
 $processes = Get-Process | Where-Object { $_.Id -ne 0 -and $_.ProcessName -ne "Idle" }
 $result = @()
@@ -3985,6 +4000,7 @@ ipcMain.handle('get-event-logs', async (event, logName) => {
     }
 
     const psScript = `
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     try {
         Get-WinEvent -LogName '${logName}' -MaxEvents 100 -ErrorAction Stop |
         Select-Object @{Name='TimeCreated';Expression={$_.TimeCreated.ToString('o')}},
@@ -4045,5 +4061,542 @@ ipcMain.handle('save-file-dialog-and-write', async (event, content, options) => 
 });
 
 // Verified plugins handlers are now handled by PluginManager
+
+// USB media helpers (Apps tab) — paths must stay under the selected drive root
+const USB_MARKER_RELATIVE = path.join('WinTool', 'drive.json');
+const USB_APPS_RELATIVE = path.join('WinTool', 'apps.json');
+const USB_ICONS_DIR = path.join('WinTool', 'icons');
+const USB_MAX_JSON_BYTES = 1024 * 1024;
+const USB_MAX_ICON_BYTES = 2 * 1024 * 1024;
+const USB_ICON_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.svg']);
+const USB_KEY_PATTERN = /\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b/gi;
+const DEFAULT_MAS = { relativePath: path.join('WinTool', 'mas'), entryScript: 'MAS_AIO.cmd' };
+const OSPP_CANDIDATES = [
+    'C:\\Program Files\\Microsoft Office\\Office16\\OSPP.VBS',
+    'C:\\Program Files (x86)\\Microsoft Office\\Office16\\OSPP.VBS',
+    'C:\\Program Files\\Microsoft Office\\root\\Office16\\OSPP.VBS',
+    'C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\OSPP.VBS',
+    'C:\\Program Files\\Microsoft Office\\Office15\\OSPP.VBS',
+    'C:\\Program Files (x86)\\Microsoft Office\\Office15\\OSPP.VBS',
+    'C:\\Program Files\\Microsoft Office\\Office14\\OSPP.VBS',
+    'C:\\Program Files (x86)\\Microsoft Office\\Office14\\OSPP.VBS',
+];
+
+function usbFormatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function usbRedactKeys(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(USB_KEY_PATTERN, '[REDACTED]')
+        .replace(/((?:partial\s+)?product\s+key)\s*[:=]\s*\S+/gi, '$1: [REDACTED]');
+}
+
+function usbNormalizeDriveRoot(drive) {
+    if (!drive || typeof drive !== 'string') {
+        throw new Error('Invalid drive');
+    }
+    const letter = drive.trim().replace(/[/\\]+$/, '');
+    if (!/^[A-Za-z]:$/.test(letter)) {
+        throw new Error('Invalid drive');
+    }
+    return `${letter}\\`;
+}
+
+function usbResolveUnderDrive(drive, relativePath) {
+    const root = usbNormalizeDriveRoot(drive);
+    const rel = String(relativePath || '').replace(/\//g, '\\').replace(/^\\+/, '');
+    if (!rel || rel.includes('\0') || /[:*?"<>|]/.test(rel)) {
+        throw new Error('Invalid relative path');
+    }
+    const segments = rel.split(/[/\\]+/).filter(Boolean);
+    if (segments.length === 0 || segments.some(seg => seg === '..' || seg === '.')) {
+        throw new Error('Path escapes drive root');
+    }
+    const resolved = path.win32.resolve(root, ...segments);
+    const rootResolved = path.win32.resolve(root);
+    const relToRoot = path.win32.relative(rootResolved, resolved);
+    if (!relToRoot || relToRoot.startsWith('..') || path.win32.isAbsolute(relToRoot)) {
+        throw new Error('Path escapes drive root');
+    }
+    return resolved;
+}
+
+function usbToPosixRelative(relativePath) {
+    return String(relativePath || '').replace(/\\/g, '/');
+}
+
+function usbEnsureWinToolRelative(relativePath) {
+    const posix = usbToPosixRelative(relativePath).replace(/^\/+/, '');
+    if (!posix.toLowerCase().startsWith('wintool/')) {
+        throw new Error('JSON and icons must stay under WinTool\\');
+    }
+    return posix;
+}
+
+async function usbReadJsonFile(filePath) {
+    const raw = await fs.readFile(filePath, 'utf8');
+    if (Buffer.byteLength(raw, 'utf8') > USB_MAX_JSON_BYTES) {
+        throw new Error('JSON file is too large');
+    }
+    return JSON.parse(raw);
+}
+
+function usbParseDriveList(output) {
+    const text = String(output || '').trim();
+    if (!text) return [];
+    try {
+        const parsed = JSON.parse(text);
+        const rows = Array.isArray(parsed) ? parsed : [parsed];
+        return rows
+            .map(row => ({
+                drive: String(row.DeviceID || row.deviceID || '').replace(/\\+$/, ''),
+                volumeName: row.VolumeName || row.volumeName || '',
+                size: Number(row.Size || row.size) || 0,
+                freeSpace: Number(row.FreeSpace || row.freeSpace) || 0,
+            }))
+            .filter(row => /^[A-Za-z]:$/.test(row.drive));
+    } catch (error) {
+        return [];
+    }
+}
+
+async function usbListRemovableDrives() {
+    const ps = `Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=2" | Select-Object DeviceID, VolumeName, Size, FreeSpace | ConvertTo-Json -Compress`;
+    try {
+        const output = await processPool.executePowerShellCommand(ps);
+        const parsed = usbParseDriveList(output);
+        if (parsed.length) return parsed;
+    } catch (error) {
+        loggingManager.logWarn(`USB CIM query failed: ${error.message}`, 'UsbMedia');
+    }
+
+    try {
+        const wmi = `Get-WmiObject Win32_LogicalDisk -Filter "DriveType=2" | Select-Object DeviceID, VolumeName, Size, FreeSpace | ConvertTo-Json -Compress`;
+        const output = await processPool.executePowerShellCommand(wmi);
+        return usbParseDriveList(output);
+    } catch (error) {
+        loggingManager.logWarn(`USB WMI query failed: ${error.message}`, 'UsbMedia');
+        return [];
+    }
+}
+
+async function usbReadMarker(drive) {
+    const markerPath = usbResolveUnderDrive(drive, USB_MARKER_RELATIVE);
+    try {
+        const data = await usbReadJsonFile(markerPath);
+        if (!data || data.role !== 'wintool-media') {
+            return null;
+        }
+        return { markerPath, data };
+    } catch (error) {
+        return null;
+    }
+}
+
+async function usbRequireMediaDrive(drive) {
+    const letter = usbNormalizeDriveRoot(drive).slice(0, 2);
+    const removable = await usbListRemovableDrives();
+    if (!removable.some(disk => disk.drive.toUpperCase() === letter.toUpperCase())) {
+        throw new Error('Drive is not a removable USB');
+    }
+    const marker = await usbReadMarker(letter);
+    if (!marker) {
+        throw new Error('Drive is not a WinTool media USB');
+    }
+    return { drive: letter, marker };
+}
+
+function usbIsAppsJsonPath(posix) {
+    return (
+        usbToPosixRelative(posix).toLowerCase() ===
+        usbToPosixRelative(USB_APPS_RELATIVE).toLowerCase()
+    );
+}
+
+function usbPathIsUnder(parentAbs, childAbs) {
+    const rel = path.win32.relative(path.win32.resolve(parentAbs), path.win32.resolve(childAbs));
+    return Boolean(rel) && !rel.startsWith('..') && !path.win32.isAbsolute(rel);
+}
+
+function usbMasFromMarker(data) {
+    const mas = data && data.mas && typeof data.mas === 'object' ? data.mas : {};
+    return {
+        relativePath: mas.relativePath || DEFAULT_MAS.relativePath,
+        entryScript: mas.entryScript || DEFAULT_MAS.entryScript,
+    };
+}
+
+async function usbPathExists(absPath) {
+    try {
+        await fs.access(absPath);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+async function usbFileToDataUrl(absPath) {
+    const ext = path.extname(absPath).toLowerCase();
+    if (!USB_ICON_EXTS.has(ext)) return null;
+    const buf = await fs.readFile(absPath);
+    if (buf.length > USB_MAX_ICON_BYTES) {
+        throw new Error('Icon file is too large');
+    }
+    const mime =
+        ext === '.svg'
+            ? 'image/svg+xml'
+            : ext === '.jpg' || ext === '.jpeg'
+              ? 'image/jpeg'
+              : ext === '.gif'
+                ? 'image/gif'
+                : ext === '.webp'
+                  ? 'image/webp'
+                  : ext === '.bmp'
+                    ? 'image/bmp'
+                    : ext === '.ico'
+                      ? 'image/x-icon'
+                      : 'image/png';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+async function usbEnrichApps(drive, data) {
+    if (!Array.isArray(data)) return [];
+    const apps = [];
+    for (const item of data) {
+        if (!item || typeof item !== 'object') continue;
+        const app = {
+            id: String(item.id || ''),
+            name: String(item.name || ''),
+            icon: String(item.icon || 'fas fa-box'),
+            source: item.source === 'url' ? 'url' : 'usb',
+        };
+        if (app.source === 'url') app.url = String(item.url || '');
+        else app.relativePath = usbToPosixRelative(item.relativePath || '');
+        if (app.icon && !app.icon.startsWith('fa') && !app.icon.startsWith('data:')) {
+            try {
+                const iconPath = usbResolveUnderDrive(drive, app.icon);
+                app.iconDataUrl = await usbFileToDataUrl(iconPath);
+            } catch (error) {
+                app.iconDataUrl = null;
+            }
+        }
+        apps.push(app);
+    }
+    return apps;
+}
+
+function usbValidateAppsPayload(data) {
+    if (!Array.isArray(data)) {
+        throw new Error('apps.json must be an array');
+    }
+    return data.map(item => {
+        if (!item || typeof item !== 'object') {
+            throw new Error('Invalid catalog entry');
+        }
+        const source = item.source === 'url' ? 'url' : item.source === 'usb' ? 'usb' : null;
+        if (!source) throw new Error('App source must be url or usb');
+        const entry = {
+            id: String(item.id || '').slice(0, 80),
+            name: String(item.name || '').slice(0, 120),
+            icon: String(item.icon || 'fas fa-box').slice(0, 260),
+            source,
+        };
+        if (!entry.id || !entry.name) throw new Error('App id and name are required');
+        if (source === 'url') {
+            if (!/^https?:\/\//i.test(String(item.url || ''))) {
+                throw new Error('URL apps require an http(s) URL');
+            }
+            entry.url = String(item.url);
+        } else {
+            const relativePath = usbToPosixRelative(item.relativePath || '');
+            if (
+                !relativePath ||
+                relativePath.includes('..') ||
+                /[:*?"<>|]/.test(relativePath) ||
+                path.win32.isAbsolute(relativePath)
+            ) {
+                throw new Error('USB apps require a relative path under the drive root');
+            }
+            entry.relativePath = relativePath;
+        }
+        return entry;
+    });
+}
+
+function usbStartDetached(filePath, cwd, extraArgs) {
+    const args = ['/c', 'start', '', filePath];
+    if (Array.isArray(extraArgs)) {
+        extraArgs.forEach(arg => {
+            if (arg != null && arg !== '') args.push(String(arg));
+        });
+    }
+    const child = spawn('cmd.exe', args, {
+        cwd: cwd || path.dirname(filePath),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+        shell: false,
+    });
+    child.unref();
+}
+
+ipcMain.handle('usb-list-media-drives', async () => {
+    try {
+        const removable = await usbListRemovableDrives();
+        const drives = [];
+        for (const disk of removable) {
+            const marker = await usbReadMarker(disk.drive);
+            if (!marker) continue;
+            const mas = usbMasFromMarker(marker.data);
+            const officeSetup = usbResolveUnderDrive(disk.drive, path.join('Office', 'setup.exe'));
+            const windowsDir = usbResolveUnderDrive(disk.drive, 'Windows');
+            let masEntry = null;
+            try {
+                masEntry = usbResolveUnderDrive(disk.drive, path.join(mas.relativePath, mas.entryScript));
+            } catch (error) {
+                masEntry = null;
+            }
+            drives.push({
+                drive: disk.drive,
+                volumeName: disk.volumeName,
+                size: disk.size,
+                freeSpace: disk.freeSpace,
+                role: 'wintool-media',
+                markerPath: marker.markerPath,
+                mas,
+                hasOfficeSetup: await usbPathExists(officeSetup),
+                hasWindowsFolder: await usbPathExists(windowsDir),
+                hasMas: masEntry ? await usbPathExists(masEntry) : false,
+            });
+        }
+        return { success: true, drives };
+    } catch (error) {
+        loggingManager.logError(`USB drive scan failed: ${error.message}`, 'UsbMedia');
+        return { success: false, drives: [], error: error.message };
+    }
+});
+
+ipcMain.handle('usb-read-json', async (_event, payload) => {
+    try {
+        const { drive, relativePath } = payload || {};
+        await usbRequireMediaDrive(drive);
+        const posix = usbEnsureWinToolRelative(relativePath);
+        if (!posix.toLowerCase().endsWith('.json')) {
+            throw new Error('Only JSON files can be read');
+        }
+        const abs = usbResolveUnderDrive(drive, posix);
+        if (!(await usbPathExists(abs))) {
+            if (usbIsAppsJsonPath(posix)) {
+                return { success: true, data: [] };
+            }
+            return { success: false, error: 'File not found' };
+        }
+        const data = await usbReadJsonFile(abs);
+        if (usbIsAppsJsonPath(posix)) {
+            return { success: true, data: await usbEnrichApps(drive, data) };
+        }
+        return { success: true, data };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('usb-write-json', async (_event, payload) => {
+    try {
+        const { drive, relativePath, data } = payload || {};
+        await usbRequireMediaDrive(drive);
+        const posix = usbEnsureWinToolRelative(relativePath);
+        if (!usbIsAppsJsonPath(posix)) {
+            throw new Error('Only WinTool\\apps.json can be written');
+        }
+        const abs = usbResolveUnderDrive(drive, posix);
+        const body = usbValidateAppsPayload(data);
+        body.forEach(app => {
+            if (app.source === 'usb') usbResolveUnderDrive(drive, app.relativePath);
+        });
+        const serialized = JSON.stringify(body, null, 2);
+        if (Buffer.byteLength(serialized, 'utf8') > USB_MAX_JSON_BYTES) {
+            throw new Error('JSON payload is too large');
+        }
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, serialized, 'utf8');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('usb-copy-icon', async (_event, payload) => {
+    try {
+        const { drive, sourcePath } = payload || {};
+        await usbRequireMediaDrive(drive);
+        if (!sourcePath || typeof sourcePath !== 'string' || sourcePath.includes('\0')) {
+            throw new Error('Invalid icon path');
+        }
+        const ext = path.extname(sourcePath).toLowerCase();
+        if (!USB_ICON_EXTS.has(ext)) {
+            throw new Error('Unsupported icon type');
+        }
+        const stat = await fs.stat(sourcePath);
+        if (!stat.isFile() || stat.size > USB_MAX_ICON_BYTES) {
+            throw new Error('Icon is missing or too large');
+        }
+        const base = path
+            .basename(sourcePath, ext)
+            .replace(/[^a-zA-Z0-9._-]+/g, '-')
+            .slice(0, 60) || 'icon';
+        const relativePath = path.join(USB_ICONS_DIR, `${base}${ext}`);
+        const dest = usbResolveUnderDrive(drive, relativePath);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.copyFile(sourcePath, dest);
+        const dataUrl = await usbFileToDataUrl(dest);
+        return { success: true, relativePath: usbToPosixRelative(relativePath), dataUrl };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('usb-list-windows-images', async (_event, payload) => {
+    try {
+        const drive = payload && payload.drive;
+        await usbRequireMediaDrive(drive);
+        const dir = usbResolveUnderDrive(drive, 'Windows');
+        if (!(await usbPathExists(dir))) {
+            return { success: true, files: [] };
+        }
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        const files = [];
+        for (const entry of entries) {
+            if (!entry.isFile()) continue;
+            const abs = path.join(dir, entry.name);
+            const stat = await fs.stat(abs);
+            files.push({
+                name: entry.name,
+                ext: path.extname(entry.name).replace(/^\./, '').toUpperCase(),
+                size: stat.size,
+                sizeLabel: usbFormatBytes(stat.size),
+            });
+        }
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        return { success: true, files };
+    } catch (error) {
+        return { success: false, files: [], error: error.message };
+    }
+});
+
+ipcMain.handle('usb-start-office-setup', async (_event, payload) => {
+    try {
+        const drive = payload && payload.drive;
+        await usbRequireMediaDrive(drive);
+        const setupPath = usbResolveUnderDrive(drive, path.join('Office', 'setup.exe'));
+        if (!(await usbPathExists(setupPath))) {
+            return { success: false, error: 'Office\\setup.exe not found on this drive' };
+        }
+        usbStartDetached(setupPath, path.dirname(setupPath));
+        loggingManager.logInfo('Started Office setup from USB media', 'UsbMedia');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('usb-run-mas', async (_event, payload) => {
+    try {
+        const acknowledged = await settingsManager.getSetting('labMasAcknowledged', false);
+        if (!acknowledged) {
+            return { success: false, error: 'Lab disclaimer is not acknowledged' };
+        }
+        const drive = payload && payload.drive;
+        const media = await usbRequireMediaDrive(drive);
+        const action = payload && payload.action === 'office' ? 'office' : 'windows';
+        const mas = usbMasFromMarker(media.marker.data);
+        const entry = usbResolveUnderDrive(drive, path.join(mas.relativePath, mas.entryScript));
+        if (!(await usbPathExists(entry))) {
+            return { success: false, error: 'Lab entry script was not found on this USB' };
+        }
+        const extraArgs = action === 'office' ? ['/Ohook'] : ['/HWID'];
+        usbStartDetached(entry, path.dirname(entry), extraArgs);
+        loggingManager.logInfo(`Lab USB script launched (${action})`, 'UsbMedia');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('get-license-status', async () => {
+    try {
+        let windows = '';
+        let office = '';
+        try {
+            windows = await processPool.executeCmdCommand(
+                'cscript //Nologo C:\\Windows\\System32\\slmgr.vbs /xpr'
+            );
+        } catch (error) {
+            windows = error.message;
+        }
+
+        const osppPath = OSPP_CANDIDATES.find(candidate => fsSync.existsSync(candidate));
+        if (osppPath) {
+            try {
+                office = await processPool.executeCmdCommand(`cscript //Nologo "${osppPath}" /dstatus`);
+            } catch (error) {
+                office = error.message;
+            }
+        } else {
+            office = 'OSPP.VBS not present';
+        }
+
+        const safeWindows = usbRedactKeys(windows);
+        const safeOffice = usbRedactKeys(office);
+        loggingManager.logInfo('License status checked (keys omitted)', 'UsbMedia');
+        return { success: true, windows: safeWindows, office: safeOffice };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('usb-open-item', async (_event, payload) => {
+    try {
+        const { drive, source, url, relativePath } = payload || {};
+        if (source === 'url') {
+            if (!/^https?:\/\//i.test(String(url || ''))) {
+                throw new Error('Only http(s) URLs can be opened');
+            }
+            await shell.openExternal(url);
+            return { success: true };
+        }
+        const media = await usbRequireMediaDrive(drive);
+        const target = usbResolveUnderDrive(drive, relativePath);
+        if (!(await usbPathExists(target))) {
+            return { success: false, error: 'USB file was not found' };
+        }
+        const mas = usbMasFromMarker(media.marker.data);
+        let masRoot = null;
+        try {
+            masRoot = usbResolveUnderDrive(drive, mas.relativePath);
+        } catch (error) {
+            masRoot = null;
+        }
+        if (masRoot && usbPathIsUnder(masRoot, target)) {
+            const acknowledged = await settingsManager.getSetting('labMasAcknowledged', false);
+            if (!acknowledged) {
+                return { success: false, error: 'Lab disclaimer is not acknowledged' };
+            }
+        }
+        const openError = await shell.openPath(target);
+        if (openError) {
+            return { success: false, error: openError };
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 
 // End of file

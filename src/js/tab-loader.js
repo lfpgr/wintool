@@ -5,6 +5,30 @@
  * Each tab folder should contain: index.html, styles.css, script.js, and config.json
  */
 
+const TAB_GROUP_ORDER = ['overview', 'system', 'software', 'settings', 'network', 'other'];
+
+const TAB_GROUP_MAP = {
+    welcome: 'overview',
+    'system-info': 'overview',
+    'system-health': 'overview',
+    services: 'system',
+    processes: 'system',
+    'event-viewer': 'system',
+    cleanup: 'system',
+    'system-utilities': 'system',
+    packages: 'software',
+    'appx-packages': 'software',
+    apps: 'software',
+    tweaks: 'settings',
+    'registry-editor': 'settings',
+    'environment-variables': 'settings',
+    'windows-unattend': 'settings',
+    'script-editor': 'settings',
+    networking: 'network',
+    about: 'other',
+    plugins: 'other',
+};
+
 /**
  * TabLoader Class
  *
@@ -57,6 +81,11 @@ class TabLoader {
         this.lazyLoadingEnabled = true; // Enable lazy loading of tab scripts
         this.performanceMode = 'auto'; // Performance mode: 'auto', 'fast', 'balanced'
         this.systemCapabilities = null; // Detected system performance capabilities
+
+        this._applyingGroups = false;
+        this._groupTimer = null;
+        this._detachedPlugins = null;
+        this._tabListObserver = null;
     }
 
     /**
@@ -212,9 +241,14 @@ class TabLoader {
             const allItems = await window.electronAPI.getTabFolders();
             console.log('Found tabs and plugins:', allItems);
 
-            // 2. Sort the items: built-in tabs first, then plugins, with 'about' always last.
+            this.prepareHardcodedTabs();
+            this.observeTabListGrouping();
+
+            // 2. Sort by sidebar group, then built-in order (plugins last within a group, about last).
             allItems.sort((a, b) => {
-                // Rule 1: 'about' tab is always last.
+                const groupDiff = this.getGroupIndex(a.name) - this.getGroupIndex(b.name);
+                if (groupDiff !== 0) return groupDiff;
+
                 if (a.name === 'about') return 1;
                 if (b.name === 'about') return -1;
 
@@ -224,15 +258,12 @@ class TabLoader {
                 const bIndex = defaultOrder.indexOf(b.name);
 
                 if (aIsTab && bIsTab) {
-                    // Both are built-in tabs, sort by the default order.
                     return (aIndex > -1 ? aIndex : Infinity) - (bIndex > -1 ? bIndex : Infinity);
                 }
 
-                // If one is a tab and the other isn't, the default order from get-tab-folders is maintained.
                 if (aIsTab && !bIsTab) return -1;
                 if (!aIsTab && bIsTab) return 1;
 
-                // If both are plugins, sort alphabetically.
                 return a.name.localeCompare(b.name);
             });
 
@@ -246,6 +277,8 @@ class TabLoader {
             this.initializedTabsCount = 0;
 
             if (this.totalTabs === 0) {
+                this.placePluginsTab();
+                this.applyGroupHeaders();
                 this.updateProgress('Application ready', 100);
                 if (this.onCompleteCallback) {
                     // Reduced timeout for faster completion
@@ -287,6 +320,9 @@ class TabLoader {
             console.log(
                 `📊 Sequential tab loading completed in ${(performance.now() - sequentialStart).toFixed(2)}ms`
             );
+
+            this.placePluginsTab();
+            this.applyGroupHeaders();
 
             this.updateProgress('Finalizing setup...', 50);
             console.log(
@@ -452,12 +488,17 @@ class TabLoader {
         const tabList = document.getElementById('tab-list');
         if (!tabList) return;
 
+        const group = this.resolveTabGroup(tabId, config);
+        const label = this.getTabLabel(config);
+        this.ensureGroupHeader(tabList, group);
+
         const tabItem = document.createElement('li');
         tabItem.className = 'tab-item';
         tabItem.setAttribute('data-tab', tabId);
+        tabItem.setAttribute('data-group', group);
         tabItem.innerHTML = `
             <i class="${config.icon || 'fas fa-cog'}"></i>
-            <span>${config.name || 'Unnamed Tab'}</span>
+            <span>${label}</span>
         `;
 
         // Add click handler
@@ -472,13 +513,198 @@ class TabLoader {
         // Add tooltip for folded tabs if currently folded
         const sidebar = document.querySelector('.sidebar');
         if (sidebar && sidebar.classList.contains('folded-tabs')) {
-            tabItem.setAttribute('data-tooltip', config.name || 'Unnamed Tab');
+            tabItem.setAttribute('data-tooltip', label);
         }
 
         // Make the new tab draggable if the feature is enabled
         if (window.makeNewTabDraggable) {
             window.makeNewTabDraggable(tabItem);
         }
+    }
+
+    resolveTabGroup(tabId, config) {
+        if (config && config.group) return config.group;
+        return TAB_GROUP_MAP[tabId] || 'other';
+    }
+
+    getGroupIndex(tabId) {
+        const group = TAB_GROUP_MAP[tabId] || 'other';
+        const index = TAB_GROUP_ORDER.indexOf(group);
+        return index === -1 ? TAB_GROUP_ORDER.length : index;
+    }
+
+    getTabLabel(config) {
+        const isRu = window.i18n && window.i18n.isRu;
+        if (isRu && config && config.nameRu) {
+            return config.nameRu;
+        }
+        return (config && config.name) || 'Unnamed Tab';
+    }
+
+    translate(key) {
+        if (window.i18n && typeof window.i18n.t === 'function') {
+            return window.i18n.t(key);
+        }
+        return key;
+    }
+
+    prepareHardcodedTabs() {
+        const tabList = document.getElementById('tab-list');
+        if (!tabList) return;
+
+        const welcome = tabList.querySelector('.tab-item[data-tab="welcome"]');
+        if (welcome) {
+            welcome.setAttribute('data-group', 'overview');
+            const span = welcome.querySelector('span');
+            if (span) {
+                span.textContent = this.translate('Dashboard');
+            }
+        }
+
+        const plugins = tabList.querySelector('.tab-item[data-tab="plugins"]');
+        if (plugins) {
+            plugins.setAttribute('data-group', 'other');
+            plugins.remove();
+            this._detachedPlugins = plugins;
+        }
+
+        this.ensureGroupHeader(tabList, 'overview');
+    }
+
+    placePluginsTab() {
+        if (!this._detachedPlugins) return;
+
+        const tabList = document.getElementById('tab-list');
+        if (!tabList) return;
+
+        this.ensureGroupHeader(tabList, 'other');
+        const about = tabList.querySelector('.tab-item[data-tab="about"]');
+        if (about) {
+            tabList.insertBefore(this._detachedPlugins, about);
+        } else {
+            tabList.appendChild(this._detachedPlugins);
+        }
+        this._detachedPlugins = null;
+    }
+
+    createGroupHeader(group) {
+        const header = document.createElement('li');
+        header.className = 'tab-group-header';
+        header.setAttribute('data-group', group);
+        header.setAttribute('draggable', 'false');
+        header.textContent = this.translate(`group.${group}`);
+        header.addEventListener('dragstart', event => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        return header;
+    }
+
+    ensureGroupHeader(tabList, group) {
+        if (!tabList || !group) return;
+        if (tabList.querySelector(`.tab-group-header[data-group="${group}"]`)) return;
+
+        const header = this.createGroupHeader(group);
+        const firstInGroup = tabList.querySelector(`.tab-item[data-group="${group}"]`);
+        if (firstInGroup) {
+            tabList.insertBefore(header, firstInGroup);
+        } else {
+            tabList.appendChild(header);
+        }
+    }
+
+    applyGroupHeaders() {
+        const tabList = document.getElementById('tab-list');
+        if (!tabList || this._applyingGroups) return;
+
+        this._applyingGroups = true;
+        if (this._tabListObserver) {
+            this._tabListObserver.disconnect();
+        }
+        try {
+            const tabs = Array.from(tabList.querySelectorAll(':scope > .tab-item'));
+            const buckets = {};
+            TAB_GROUP_ORDER.forEach(group => {
+                buckets[group] = [];
+            });
+
+            tabs.forEach(tab => {
+                const tabId = tab.getAttribute('data-tab');
+                const group = tab.getAttribute('data-group') || TAB_GROUP_MAP[tabId] || 'other';
+                tab.setAttribute('data-group', group);
+                if (!buckets[group]) buckets[group] = [];
+                buckets[group].push(tab);
+            });
+
+            if (buckets.overview && buckets.overview.length > 1) {
+                buckets.overview.sort((a, b) => {
+                    if (a.getAttribute('data-tab') === 'welcome') return -1;
+                    if (b.getAttribute('data-tab') === 'welcome') return 1;
+                    return 0;
+                });
+            }
+
+            if (buckets.other && buckets.other.length > 1) {
+                buckets.other.sort((a, b) => {
+                    if (a.getAttribute('data-tab') === 'about') return 1;
+                    if (b.getAttribute('data-tab') === 'about') return -1;
+                    return 0;
+                });
+            }
+
+            const existingHeaders = Array.from(
+                tabList.querySelectorAll(':scope > .tab-group-header')
+            );
+            const headerMap = new Map();
+            existingHeaders.forEach(header => {
+                headerMap.set(header.getAttribute('data-group'), header);
+            });
+
+            const fragment = document.createDocumentFragment();
+            TAB_GROUP_ORDER.forEach(group => {
+                const items = buckets[group];
+                if (!items || items.length === 0) return;
+
+                let header = headerMap.get(group);
+                if (!header) {
+                    header = this.createGroupHeader(group);
+                } else {
+                    header.textContent = this.translate(`group.${group}`);
+                    headerMap.delete(group);
+                }
+                fragment.appendChild(header);
+                items.forEach(item => fragment.appendChild(item));
+            });
+
+            headerMap.forEach(header => header.remove());
+            tabList.appendChild(fragment);
+        } finally {
+            if (this._tabListObserver) {
+                this._tabListObserver.observe(tabList, { childList: true });
+            }
+            this._applyingGroups = false;
+        }
+    }
+
+    observeTabListGrouping() {
+        const tabList = document.getElementById('tab-list');
+        if (!tabList || this._tabListObserver) return;
+
+        this._tabListObserver = new MutationObserver(() => {
+            if (this._applyingGroups) return;
+            clearTimeout(this._groupTimer);
+            this._groupTimer = setTimeout(() => this.applyGroupHeaders(), 50);
+        });
+
+        this._tabListObserver.observe(tabList, { childList: true });
+
+        tabList.addEventListener(
+            'dragend',
+            () => {
+                setTimeout(() => this.applyGroupHeaders(), 0);
+            },
+            true
+        );
     }
 
     /**

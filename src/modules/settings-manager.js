@@ -227,6 +227,14 @@ class SettingsManager {
                         rainbowMode: false,
                         customTheme: {},
                         hideWarningBanners: false,
+                        dashboardProfiles: [
+                            {
+                                id: 'lab',
+                                name: 'Lab',
+                                widgets: ['usb-status', 'apps', 'services', 'system-info', 'cleanup'],
+                            },
+                        ],
+                        activeDashboardProfile: 'lab',
                     },
                 });
             } catch (error) {

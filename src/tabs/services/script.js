@@ -139,7 +139,7 @@ const ServiceManager = {
     async getServicesWithPowerShell() {
         try {
             // Use a simple PowerShell command that gets all needed data in one call
-            const psScript = `Get-Service | Select-Object Name,DisplayName,Status,StartType | ConvertTo-Json`;
+            const psScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Service | Select-Object Name,DisplayName,Status,StartType | ConvertTo-Json`;
 
             // Hide PowerShell command execution if configured
             let command;

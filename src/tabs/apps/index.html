@@ -1,0 +1,165 @@
+<div class="tab-header">
+    <div>
+        <h1><i class="fas fa-th"></i> Apps</h1>
+        <p>USB catalog, Office setup, Windows images, and lab media tools</p>
+    </div>
+    <div>
+        <button id="apps-refresh-drives" class="btn btn-primary" type="button">
+            <i class="fas fa-sync-alt"></i> Refresh USB
+        </button>
+    </div>
+</div>
+
+<div class="apps-container">
+    <div class="apps-controls">
+        <div class="controls-row">
+            <div class="apps-drive-picker">
+                <label for="apps-drive-select">Media drive</label>
+                <select id="apps-drive-select" class="filter-select">
+                    <option value="">No WinTool USB detected</option>
+                </select>
+            </div>
+            <div class="apps-drive-status" id="apps-drive-status">
+                Connect a USB drive with <code>WinTool\drive.json</code>
+            </div>
+        </div>
+    </div>
+
+    <div class="apps-empty-drive" id="apps-empty-drive">
+        <div class="empty-state">
+            <i class="fab fa-usb"></i>
+            <p>No WinTool media USB found. Insert a removable drive with marker file <code>WinTool\drive.json</code> (role <code>wintool-media</code>).</p>
+        </div>
+    </div>
+
+    <div id="apps-media-content" class="apps-media-content hidden">
+        <div class="quick-access-section">
+            <div class="quick-access-header">
+                <h3><i class="fas fa-th-large"></i> Application catalog</h3>
+                <button id="apps-add-app" class="btn btn-primary btn-sm" type="button">
+                    <i class="fas fa-plus"></i> Add app
+                </button>
+            </div>
+            <div class="apps-catalog-grid" id="apps-catalog-grid"></div>
+        </div>
+
+        <div class="quick-access-section">
+            <div class="quick-access-header">
+                <h3><i class="fas fa-file-word"></i> Microsoft Office</h3>
+            </div>
+            <p class="apps-section-copy">Runs <code>Office\setup.exe</code> from the selected media drive when present.</p>
+            <div class="apps-inline-actions">
+                <button id="apps-office-setup" class="btn btn-primary" type="button" disabled>
+                    <i class="fas fa-download"></i> Install Office
+                </button>
+                <span id="apps-office-status" class="apps-status-text">Checking setup.exe…</span>
+            </div>
+        </div>
+
+        <div class="quick-access-section">
+            <div class="quick-access-header">
+                <h3><i class="fas fa-compact-disc"></i> Windows images</h3>
+            </div>
+            <p class="apps-section-copy">Files in <code>Windows\</code> on this USB. Listing only — ISO install is not available here.</p>
+            <div class="apps-table-container">
+                <table class="apps-table" id="apps-windows-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Type</th>
+                            <th>Size</th>
+                        </tr>
+                    </thead>
+                    <tbody id="apps-windows-table-body">
+                        <tr>
+                            <td colspan="3">No images found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="quick-access-section apps-lab-section" id="apps-lab-section">
+            <div class="quick-access-header">
+                <h3><i class="fas fa-flask"></i> Lab tools</h3>
+                <span class="apps-lab-badge">Lab only</span>
+            </div>
+            <div class="apps-disclaimer" id="apps-mas-disclaimer">
+                <p>
+                    <strong>Lab disclaimer.</strong> This launches a third-party script that already exists on the USB
+                    (<code>WinTool\mas</code>). Use it only in a controlled lab with genuine Microsoft licenses.
+                    WinTool does not ship activation scripts or product keys.
+                </p>
+                <label class="apps-checkbox">
+                    <input type="checkbox" id="apps-mas-ack">
+                    <span>I acknowledge lab-only use with genuine licenses</span>
+                </label>
+            </div>
+            <div class="apps-inline-actions">
+                <button id="apps-mas-windows" class="btn btn-warning" type="button" disabled>
+                    <i class="fab fa-windows"></i> Activate Windows
+                </button>
+                <button id="apps-mas-office" class="btn btn-warning" type="button" disabled>
+                    <i class="fas fa-file-word"></i> Activate Office
+                </button>
+                <button id="apps-license-check" class="btn btn-info" type="button">
+                    <i class="fas fa-search"></i> Check
+                </button>
+            </div>
+            <pre class="apps-log" id="apps-lab-log">Ready. License checks omit product keys.</pre>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="apps-edit-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="apps-edit-title">Add application</h2>
+            <button class="modal-close" id="apps-edit-close" type="button">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="apps-edit-id">
+            <div class="apps-form-row">
+                <label for="apps-edit-name">Name</label>
+                <input type="text" id="apps-edit-name" class="search-input" maxlength="80" placeholder="Display name">
+            </div>
+            <div class="apps-form-row">
+                <label for="apps-edit-source">Source</label>
+                <select id="apps-edit-source" class="filter-select">
+                    <option value="usb">USB file</option>
+                    <option value="url">Internet URL</option>
+                </select>
+            </div>
+            <div class="apps-form-row" id="apps-edit-url-row">
+                <label for="apps-edit-url">URL</label>
+                <input type="url" id="apps-edit-url" class="search-input" placeholder="https://example.com/setup.exe">
+            </div>
+            <div class="apps-form-row" id="apps-edit-path-row">
+                <label for="apps-edit-relative-path">Relative path on USB</label>
+                <input type="text" id="apps-edit-relative-path" class="search-input" placeholder="WinTool/apps/setup.exe">
+            </div>
+            <div class="apps-form-row">
+                <label for="apps-edit-icon">Icon (Font Awesome class or copied image)</label>
+                <input type="text" id="apps-edit-icon" class="search-input" placeholder="fas fa-box">
+            </div>
+            <div class="apps-form-row apps-icon-row">
+                <button id="apps-edit-icon-file" class="btn btn-secondary btn-sm" type="button">
+                    <i class="fas fa-image"></i> Copy image to USB
+                </button>
+                <div class="apps-icon-preview" id="apps-icon-preview">
+                    <i class="fas fa-box"></i>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="apps-edit-delete" class="btn btn-danger" type="button">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                <button id="apps-edit-save" class="btn btn-primary" type="button">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

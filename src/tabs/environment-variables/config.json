@@ -1,5 +1,7 @@
 {
     "name": "Environment Variables",
+    "nameRu": "Переменные",
+    "group": "settings",
     "icon": "fas fa-code",
     "description": "Manage system and user environment variables",
     "version": "1.0.0",

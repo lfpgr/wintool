@@ -1,5 +1,7 @@
 {
     "name": "System Utilities",
+    "nameRu": "Утилиты",
+    "group": "system",
     "icon": "fas fa-tools",
     "description": "Quick access to Windows system utilities and administrative tools",
     "version": "1.0.0",

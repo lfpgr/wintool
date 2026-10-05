@@ -1,5 +1,7 @@
 {
     "name": "Event Viewer",
+    "nameRu": "Журнал",
+    "group": "system",
     "icon": "fas fa-clipboard-list",
     "description": "View, search, and filter Windows Event Logs",
     "version": "1.0.0",

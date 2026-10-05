@@ -84,7 +84,7 @@
             <ul class="tab-list" id="tab-list">
                 <li class="tab-item active" data-tab="welcome">
                     <i class="fas fa-home"></i>
-                    <span>Welcome</span>
+                    <span>Dashboard</span>
                 </li>
                 <li class="tab-item" data-tab="plugins">
                     <i class="fas fa-puzzle-piece"></i>
@@ -103,210 +103,52 @@
 
         <!-- Main Content Area -->
         <div class="content-area">
-            <!-- Welcome Tab Content -->
+            <!-- Welcome Tab Content (Dashboard) -->
             <div id="tab-welcome" class="tab-content active">
                 <div class="tab-header">
                     <div>
-                        <h1><i class="fas fa-home"></i> Welcome to WinTool</h1>
-                        <p>Professional Windows System Management Suite</p>
+                        <h1><i class="fas fa-th-large"></i> Dashboard</h1>
+                        <p>Named widget profiles for your workspace</p>
                     </div>
-                    <div>
+                    <div class="dashboard-toolbar">
+                        <label for="dashboard-profile-select" class="dashboard-profile-label">Profile</label>
+                        <select id="dashboard-profile-select" class="settings-select" aria-label="Dashboard profile">
+                        </select>
+                        <button id="dashboard-customize-btn" type="button" class="btn btn-secondary">
+                            <i class="fas fa-sliders-h"></i> Customize
+                        </button>
                     </div>
                 </div>
 
-                <div class="welcome-content">
-                    <!-- Hero Section -->
-                    <div class="hero-section">
-                        <div class="hero-background"></div>
-                        <div class="hero-content">
-                            <div class="hero-icon-wrapper">
-                                <div class="hero-icon">
-                                    <i class="fas fa-rocket"></i>
-                                </div>
-                                <div class="hero-icon-glow"></div>
-                            </div>
-                            <h2>Comprehensive. Intuitive. Professional.</h2>
-                            <p>Complete Windows system management toolkit with real-time data, powerful utilities, and
-                                seamless administration.</p>
-
-                            <div class="hero-stats">
-                                <div class="stat-item">
-                                    <span class="stat-number">15+</span>
-                                    <span class="stat-label">Management Tools</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-number">24+</span>
-                                    <span class="stat-label">System Utilities</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-number">Real-time</span>
-                                    <span class="stat-label">System Data</span>
-                                </div>
-                            </div>
-
-                            <div class="hero-buttons">
-                                <button class="btn btn-primary hero-btn"
-                                    onclick="window.open('https://discord.gg/GSTEfkxhmD', '_blank')">
-                                    <i class="fab fa-discord"></i> Join the Discord
-                                </button>
-                            </div>
+                <div id="dashboard-customize-panel" class="dashboard-customize-panel" hidden>
+                    <div class="dashboard-profile-actions">
+                        <input type="text" id="dashboard-profile-name-input" class="form-input"
+                            placeholder="Profile name" aria-label="Profile name">
+                        <button id="dashboard-create-profile-btn" type="button" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Create
+                        </button>
+                        <button id="dashboard-rename-profile-btn" type="button" class="btn btn-secondary">
+                            <i class="fas fa-pen"></i> Rename
+                        </button>
+                        <button id="dashboard-delete-profile-btn" type="button" class="btn btn-secondary">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                    <div class="dashboard-customize-columns">
+                        <div class="dashboard-order-column">
+                            <h3>Widget order</h3>
+                            <p class="settings-description">Reorder widgets on this profile</p>
+                            <ul id="dashboard-widget-order" class="dashboard-widget-order"></ul>
+                        </div>
+                        <div class="dashboard-catalog-column">
+                            <h3>Available widgets</h3>
+                            <p class="settings-description">Add any registered widget to this profile</p>
+                            <div id="dashboard-widget-catalog" class="dashboard-widget-catalog"></div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Current Features -->
-                    <div class="features-section">
-                        <h3>Available Tools & Features</h3>
-                        <div class="features-grid">
-                            <div class="feature-card">
-                                <i class="fas fa-desktop"></i>
-                                <h4>System Information</h4>
-                                <p>Real-time system data, hardware details, and performance metrics</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-tools"></i>
-                                <h4>System Utilities</h4>
-                                <p>Quick access to 24 Windows administrative tools and utilities</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-cogs"></i>
-                                <h4>Services Manager</h4>
-                                <p>Start, stop, restart Windows services with customizable quick access</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-box"></i>
-                                <h4>Package Manager</h4>
-                                <p>Install and manage Windows packages using winget</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-network-wired"></i>
-                                <h4>Network Tools</h4>
-                                <p>View network interfaces and connectivity information</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-broom"></i>
-                                <h4>System Cleanup</h4>
-                                <p>Clean temporary files and optimize Windows performance</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-code"></i>
-                                <h4>Environment Variables</h4>
-                                <p>Manage system and user environment variables</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-cogs"></i>
-                                <h4>Windows Unattend</h4>
-                                <p>Create and export Windows unattend.xml files for automated installations</p>
-                            </div>
-
-                            <div class="feature-card">
-                                <i class="fas fa-list-alt"></i>
-                                <h4>Event Viewer</h4>
-                                <p>Browse and search Windows Event Logs to diagnose system problems and errors.</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-tasks"></i>
-                                <h4>Process Manager</h4>
-                                <p>View, search, and terminate running processes with real-time CPU and memory usage.
-                                </p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-magic"></i>
-                                <h4>Windows Tweaks</h4>
-                                <p>Apply various tweaks to customize the Windows 10/11 experience.</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-cube"></i>
-                                <h4>AppX Package Manager</h4>
-                                <p>Install and uninstall Microsoft apps and AppX packages with smart categorization and
-                                    safety filters</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-heartbeat"></i>
-                                <h4>System Health Dashboard</h4>
-                                <p>Real-time monitoring of system performance and health with interactive charts and
-                                    diagnostics</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-edit"></i>
-                                <h4>Registry Editor</h4>
-                                <p>Browse, search, and manage Windows Registry with backup capabilities and admin protection</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Key Features -->
-                    <div class="features-section">
-                        <h3>Key Features</h3>
-                        <div class="features-grid">
-                            <div class="feature-card">
-                                <i class="fas fa-terminal"></i>
-                                <h4>Command Palette</h4>
-                                <p>Press Ctrl+K to open a powerful command launcher</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-search"></i>
-                                <h4>Tab Search</h4>
-                                <p>Quickly find and navigate to any tab or feature</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-arrows-alt"></i>
-                                <h4>Draggable Tabs</h4>
-                                <p>Organize tabs in your preferred order with saved layout</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-keyboard"></i>
-                                <h4>Keyboard Shortcuts</h4>
-                                <p>Customizable hotkeys for quick access to all features</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-palette"></i>
-                                <h4>Customizable</h4>
-                                <p>Personalize appearance, behavior, and advanced settings</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-tachometer-alt"></i>
-                                <h4>Real-time Data</h4>
-                                <p>Live system monitoring with automatic data refresh</p>
-                            </div>
-                            <div class="feature-card">
-                                <i class="fas fa-eye-slash"></i>
-                                <h4>Hide/Show Tabs</h4>
-                                <p>Customize your sidebar by hiding or showing tabs to declutter your workspace.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Getting Started -->
-                    <div class="getting-started">
-                        <h3>Getting Started</h3>
-                        <div class="steps">
-                            <div class="step">
-                                <div class="step-number">1</div>
-                                <div class="step-content">
-                                    <h4>Explore the Tabs</h4>
-                                    <p>Navigate through the available tools using the sidebar or tab search
-                                        functionality</p>
-                                </div>
-                            </div>
-                            <div class="step">
-                                <div class="step-number">2</div>
-                                <div class="step-content">
-                                    <h4>Customize Your Experience</h4>
-                                    <p>Access Settings to personalize colors and behavior preferences</p>
-                                </div>
-                            </div>
-                            <div class="step">
-                                <div class="step-number">3</div>
-                                <div class="step-content">
-                                    <h4>Organize Your Workspace</h4>
-                                    <p>Drag tabs to reorder them and use quick access features for frequently used tools
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-
+                <div id="dashboard-widget-grid" class="dashboard-widget-grid features-grid">
                 </div>
             </div>
 
@@ -955,7 +797,10 @@
     </div>
     <!-- JavaScript -->
     <script src="js/utils/lazy-loading-helper.js"></script>
+    <script src="js/i18n.js"></script>
     <script src="js/tab-loader.js"></script>
+    <script src="js/modules/widget-registry.js"></script>
+    <script src="js/modules/dashboard-profiles.js"></script>
     <script type="module" src="js/app.js"></script>
 </body>
 

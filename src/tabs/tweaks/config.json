@@ -1,5 +1,7 @@
 {
     "name": "Tweaks",
+    "nameRu": "Твики",
+    "group": "settings",
     "id": "tweaks",
     "icon": "fas fa-magic",
     "description": "Apply and manage Windows 10/11 tweaks.",

@@ -1,5 +1,7 @@
 {
     "name": "Processes",
+    "nameRu": "Процессы",
+    "group": "system",
     "icon": "fas fa-microchip",
     "description": "View and manage running processes."
 }

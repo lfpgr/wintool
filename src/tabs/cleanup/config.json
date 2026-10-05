@@ -1,5 +1,7 @@
 {
     "name": "Cleanup",
+    "nameRu": "Очистка",
+    "group": "system",
     "icon": "fas fa-broom",
     "description": "Clean temporary files and optimize Windows system",
     "version": "1.0.0",

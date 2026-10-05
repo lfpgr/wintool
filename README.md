@@ -309,6 +309,10 @@ npm install
 npm run dev
 ```
 
+## Lab use only (USB / MAS)
+
+WinTool on this fork may launch Microsoft Activation Scripts **from a USB stick you prepare yourself**. That path is for **lab, training, and test VMs** with explicit admin consent — not a mass-market license bypass and not for production. MAS files are **not** in this git repo. Put them on the stick under `WinTool/mas/` as described in `WinTool/drive.json`. License **status checks** use built-in `slmgr` / `ospp.vbs` (read-only). Lab buttons pass `/HWID` (Windows) or `/Ohook` (Office) to `MAS_AIO.cmd`.
+
 ---
 
 <div align="center">

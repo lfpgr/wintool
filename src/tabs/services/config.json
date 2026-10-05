@@ -1,5 +1,7 @@
 {
     "name": "Services Manager",
+    "nameRu": "Службы",
+    "group": "system",
     "icon": "fas fa-cogs",
     "description": "Manage Windows services - start, stop, restart and monitor service status",
     "version": "1.0.0",

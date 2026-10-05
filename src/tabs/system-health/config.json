@@ -1,5 +1,7 @@
 {
     "name": "System Health",
+    "nameRu": "Здоровье",
+    "group": "overview",
     "icon": "fas fa-heartbeat",
     "description": "Real-time monitoring of system performance and health",
     "version": "3.0.0",
